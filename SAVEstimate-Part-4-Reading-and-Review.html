@@ -3863,9 +3863,10 @@ function pdBuildPages(host) {
 //
 // Flat illustration style: one skin colour, one outline around the whole hand, short joint lines and flat nails; no
 // gradients or 3D shading. A hand is built from "limbs" (fingers, thumb, curled fingers) laid along a jointed axis, so one
-// builder serves every pose. Proportions follow the usual drawing rules: the middle finger is about as long as the back of the
-// hand, finger segments shrink roughly 1 : 0.65 : 0.5, four finger widths fill the knuckle line, and the thumb grows from the
-// lower third of the hand. All skin parts sit in one group whose outline is drawn by a filter around their union, so the
+// builder serves every pose. Proportions follow drawing guides and hand anthropometry: the middle finger (knuckle to tip) is
+// as long as the back of the hand (wrist to knuckle, 1 : 1), the index finger is about 0.9 of the middle finger, finger
+// segments split about 50 / 30 / 20 %, the hand is about 0.45 as wide as it is long, the knuckles arc up to the middle
+// finger, and the thumb leaves the side of the hand near the wrist. All skin parts sit in one group whose outline is drawn by a filter around their union, so the
 // silhouette has no seams; a faint contact line stays only where one part lies over another. Everything is a pure function
 // of the pose parameters, so the scenes can animate it frame by frame.
 // ---------------------------------------------------------------------------
@@ -4042,7 +4043,7 @@ function handShell(host) {
  * fingers are long, narrows to the wrist (~104), and its left edge runs straight up the index side: the thumb and the web
  * between thumb and index are separate shapes, so the hand gets the deep thumb notch a foot does not have.
  */
-const PALM = [[-50, 40], [-51, 0], [-53, -40], [-56, -90], [-58, -128], [-56, -154], [-44, -170], [-30, -168], [-14, -178], [2, -172], [20, -174], [36, -164], [50, -160], [62, -146], [68, -118], [68, -80], [62, -36], [55, 0], [54, 40]];
+const PALM = [[-52, 40], [-53, 0], [-57, -40], [-62, -90], [-66, -128], [-64, -152], [-52, -168], [-34, -166], [-16, -176], [2, -170], [20, -172], [36, -162], [52, -158], [68, -144], [76, -118], [76, -80], [66, -36], [57, 0], [56, 40]];
 
 /**
  * Thumb with its metacarpal: it leaves the hand near the wrist and angles away from the fingers, so the hand's left edge
@@ -4054,8 +4055,8 @@ function mkThumb(skin, defs) {
   const thumb = mkLimb(skin, defs, { nail: true, nailSide: -0.5, nailW: 0.5, creases: [[2, 1]] });
   return {
     pose(aM, aP, aD, ia) {
-      const ax = limbAxis([-28, -8], aM, [94, 48, 42], [aP - aM, aD - aP]);
-      const c = thumb.pose(ax, [42, 39, 34, 30]);
+      const ax = limbAxis([-30, -8], aM, [90, 44, 36], [aP - aM, aD - aP]);
+      const c = thumb.pose(ax, [44, 40, 35, 31]);
       // web: from the inside of the thumb's first segment to the index finger's left side, bowed toward the wrist
       const m = ax.pts[1];
       const dP = dirOf(aP);
@@ -4083,12 +4084,12 @@ function mkTwoFingerHand(host) {
   const ring = mkLimb(skin, defs, { stub: true });
   const index = mkLimb(skin, defs, { nail: true, creases: [[1, 1], [2, 1]] });
   const middle = mkLimb(skin, defs, { nail: true, creases: [[1, 1], [2, 1]] });
-  ring.pose(limbAxis([20, -156], 10, [34], []), [33, 32]);
-  little.pose(limbAxis([48, -144], 20, [26], []), [29, 28]);
-  const ia = limbAxis([-42, -156], -5, [88, 54, 38], [2, 1]);
-  const ma = limbAxis([-11, -164], 1, [96, 58, 40], [-1, -1]);
-  const ti = index.pose(ia, [34, 31, 28, 25]);
-  const tm = middle.pose(ma, [35, 32, 29, 26]);
+  ring.pose(limbAxis([20, -154], 10, [34], []), [33, 32]);
+  little.pose(limbAxis([51, -142], 20, [26], []), [29, 28]);
+  const ia = limbAxis([-48, -154], -5, [74, 44, 30], [2, 1]);
+  const ma = limbAxis([-14, -162], 1, [82, 49, 33], [-1, -1]);
+  const ti = index.pose(ia, [33, 30, 28, 26]);
+  const tm = middle.pose(ma, [34, 31, 29, 27]);
   thumb.pose(-34, -28, -20, ia);
   mkPalm(skin, defs, PALM);
   mkSleeve(root);
@@ -4111,9 +4112,9 @@ function mkPinchHand(host) {
   const ring = mkLimb(skin, defs, { stub: true });
   const middle = mkLimb(skin, defs, { stub: true });
   const index = mkLimb(skin, defs, { nail: true, creases: [[1, 1], [2, 1]] });
-  middle.pose(limbAxis([-11, -164], 4, [40], []), [35, 34]);
-  ring.pose(limbAxis([20, -156], 10, [34], []), [33, 32]);
-  little.pose(limbAxis([48, -144], 20, [26], []), [29, 28]);
+  middle.pose(limbAxis([-14, -162], 4, [40], []), [35, 34]);
+  ring.pose(limbAxis([20, -154], 10, [34], []), [33, 32]);
+  little.pose(limbAxis([51, -142], 20, [26], []), [29, 28]);
   mkPalm(skin, defs, PALM);
   mkSleeve(root);
   const api = {
@@ -4122,10 +4123,10 @@ function mkPinchHand(host) {
     tips: null,
     /** s in [0, 1]: 0 = starting spread, 1 = open. Returns the two touch points (index, thumb) in local coordinates. */
     pose(s) {
-      const aI = lerp(-14, 6, s);
-      const ia = limbAxis([-42, -156], aI, [84, 52, 38], [lerp(-12, -6, s), lerp(-10, -4, s)]);
-      const ti = index.pose(ia, [34, 31, 28, 25]);
-      const tt = thumb.pose(lerp(-30, -50, s), lerp(-12, -56, s), lerp(-4, -60, s), ia);
+      const aI = lerp(-24, 6, s);
+      const ia = limbAxis([-48, -154], aI, [74, 44, 30], [lerp(-10, -6, s), lerp(-8, -4, s)]);
+      const ti = index.pose(ia, [33, 30, 28, 26]);
+      const tt = thumb.pose(lerp(-26, -54, s), lerp(-4, -62, s), lerp(6, -66, s), ia);
       api.tips = [[ti.cap[0], ti.cap[1] - 2], [tt.cap[0], tt.cap[1] - 2]];
       return api.tips;
     },
