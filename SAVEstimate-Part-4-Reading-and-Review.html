@@ -4123,8 +4123,8 @@ function mkPinchHand(host) {
     tips: null,
     /** s in [0, 1]: 0 = starting spread, 1 = open. Returns the two touch points (index, thumb) in local coordinates. */
     pose(s) {
-      const aI = lerp(-24, 6, s);
-      const ia = limbAxis([-48, -154], aI, [74, 44, 30], [lerp(-10, -6, s), lerp(-8, -4, s)]);
+      const aI = lerp(-34, 0, s);
+      const ia = limbAxis([-48, -154], aI, [74, 44, 30], [0, 0]);
       const ti = index.pose(ia, [33, 30, 28, 26]);
       const tt = thumb.pose(lerp(-26, -54, s), lerp(-4, -62, s), lerp(6, -66, s), ia);
       api.tips = [[ti.cap[0], ti.cap[1] - 2], [tt.cap[0], tt.cap[1] - 2]];
