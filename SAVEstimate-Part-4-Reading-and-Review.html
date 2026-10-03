@@ -3861,35 +3861,22 @@ function pdBuildPages(host) {
 // ---------------------------------------------------------------------------
 // Part 4 - detailed vector hands for the touch-gesture scene (inline SVG, no images), plus a mouse and a trackpad.
 //
-// A hand is built from "limbs" (fingers, thumb, curled fingers) laid along a jointed axis, so one builder serves every pose:
-// each limb has a tapered outline (Catmull-Rom through offset points), a skin fill, soft cylindrical shading that follows the
-// bends (a blurred dark edge and a blurred light ridge offset toward the light, both clipped to the limb), knuckle creases at
-// the joints and, on the last segment, a nail (nail plate, free edge, cuticle, highlight).
-//
-// Proportions follow the usual figure-drawing rules: the middle finger is about as long as the back of the hand, the index and
-// ring fingers end near the middle finger's last joint, the little finger near the ring finger's last joint, the finger
-// segments shrink roughly 1 : 0.65 : 0.5, and four finger widths fill the knuckle line. The thumb grows from the lower third
-// of the hand (the thenar pad), not from the knuckle line.
-//
-// All skin parts (wrist, palm, fingers, thumb) sit in one group whose outline is drawn by a filter around their union, so the
-// silhouette is one clean line with no seams where the fingers meet the back of the hand; only a faint contact line stays
-// where one part lies over another. Light comes from the upper left. A slim shirt cuff and sleeve finish the wrist.
-// Everything is a pure function of the pose parameters, so the scenes can animate it frame by frame.
+// Flat illustration style: one skin colour, one outline around the whole hand, short joint lines and flat nails; no
+// gradients or 3D shading. A hand is built from "limbs" (fingers, thumb, curled fingers) laid along a jointed axis, so one
+// builder serves every pose. Proportions follow the usual drawing rules: the middle finger is about as long as the back of the
+// hand, finger segments shrink roughly 1 : 0.65 : 0.5, four finger widths fill the knuckle line, and the thumb grows from the
+// lower third of the hand. All skin parts sit in one group whose outline is drawn by a filter around their union, so the
+// silhouette has no seams; a faint contact line stays only where one part lies over another. Everything is a pure function
+// of the pose parameters, so the scenes can animate it frame by frame.
 // ---------------------------------------------------------------------------
 const SKIN = {
-  base: '#d49c78',
-  light: '#f2c9aa',
-  shade: '#ad7353',
-  deep: '#7d4830',
-  palm: '#eab79d',
-  outline: '#5b3121',
-  line: 'rgba(110, 58, 38, 0.38)',
-  crease: 'rgba(116, 62, 42, 0.55)',
-  nail: '#f0cfc0',
-  nailHi: '#fff6f1',
-  sleeve: '#28415f',
-  sleeveHi: '#3c5c82',
-  cuff: '#345479',
+  base: '#e8b48f',
+  outline: '#8a5236',
+  line: 'rgba(138, 82, 54, 0.55)',
+  crease: 'rgba(138, 82, 54, 0.45)',
+  nail: '#f6d9c6',
+  sleeve: '#2f4c70',
+  cuff: '#3f6390',
 };
 let HANDN = 0;
 const dirOf = (a) => [Math.sin((a * Math.PI) / 180), -Math.cos((a * Math.PI) / 180)]; // 0 deg = up, positive = clockwise
@@ -3956,184 +3943,76 @@ function limbOutline(ax, widths) {
 
 let _limbId = 0;
 /**
- * A limb element: build once, then pose(ax, widths) every frame.
- * o: { nail, nailSide: -1..1, nailW, creases: [[segIndex, count]], palmSide, stub (a curled finger seen from the back) }
+ * A limb element: build once, then pose(ax, widths) every frame. Flat style: one skin fill, a faint contact line (only seen
+ * where the limb lies over another part), short joint lines and a flat nail.
+ * o: { nail, nailSide: -1..1, nailW, creases: [[segIndex, count]], stub (a curled finger seen from the back) }
  */
 function mkLimb(parent, defs, o = {}) {
-  const id = `lb${HANDN}_${_limbId++}`;
-  const cp = sv('clipPath', { id }, defs);
-  const cpPath = sv('path', {}, cp);
   const g = sv('g', {}, parent);
   const fill = sv('path', { fill: SKIN.base }, g);
-  const inner = sv('g', { 'clip-path': `url(#${id})` }, g);
-  const pside = o.palmSide ? sv('path', { fill: SKIN.palm, opacity: 0.85, filter: `url(#hb3_${HANDN})` }, inner) : null;
-  const edge = sv('path', { fill: 'none', stroke: SKIN.shade, opacity: 0.85, filter: `url(#hb3_${HANDN})` }, inner);
-  const ridge = sv('polyline', { fill: 'none', stroke: SKIN.light, opacity: 0.7, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', filter: `url(#hb4_${HANDN})` }, inner);
-  // a curled finger turns away from the viewer: its end (the bent middle joint) darkens, with a small lit knuckle on top
-  const tipShade = o.stub ? sv('ellipse', { fill: SKIN.deep, opacity: 0.38, filter: `url(#hb4_${HANDN})` }, inner) : null;
-  const tipHi = o.stub ? sv('ellipse', { fill: '#fff', opacity: 0.2, filter: `url(#hb2_${HANDN})` }, inner) : null;
-  const line = sv('path', { fill: 'none', stroke: SKIN.line, 'stroke-width': 1 }, g);
-  const crG = sv('g', { fill: 'none', stroke: SKIN.crease, 'stroke-linecap': 'round' }, g);
-  const creases = (o.creases || []).map(([seg, cnt]) => ({ seg, g: sv('g', {}, crG), cnt, built: false }));
-  let nail = null;
-  if (o.nail) {
-    const ng = sv('g', {}, g);
-    nail = {
-      g: ng,
-      fold: sv('path', { fill: SKIN.shade, opacity: 0.4, filter: `url(#hb2_${HANDN})` }, ng),
-      plate: sv('path', { fill: `url(#ng_${HANDN})`, stroke: 'rgba(150,96,74,0.5)', 'stroke-width': 0.8 }, ng),
-      edge: sv('path', { fill: 'none', stroke: SKIN.nailHi, 'stroke-width': 2.2, 'stroke-linecap': 'round', opacity: 0.9 }, ng),
-      cut: sv('path', { fill: 'none', stroke: 'rgba(140,82,62,0.6)', 'stroke-width': 1, 'stroke-linecap': 'round' }, ng),
-      hi: sv('ellipse', { fill: '#fff', opacity: 0.55, filter: `url(#hb1_${HANDN})` }, ng),
-    };
-  }
+  const line = sv('path', { fill: 'none', stroke: SKIN.line, 'stroke-width': 1.6 }, g);
+  const crG = sv('g', { fill: 'none', stroke: SKIN.crease, 'stroke-width': 1.6, 'stroke-linecap': 'round' }, g);
+  const creases = (o.creases || []).map(([seg]) => ({ seg, el: sv('path', {}, crG) }));
+  const nail = o.nail ? sv('path', { fill: SKIN.nail }, g) : null;
   return {
     g,
     pose(ax, widths) {
-      const { ring, cap, rT, lastD, nrm } = limbOutline(ax, widths);
+      const { ring, cap, rT } = limbOutline(ax, widths);
       const d = splinePathD(ring, true);
       A(fill, 'd', d);
-      A(cpPath, 'd', d);
       A(line, 'd', d);
-      A(edge, 'd', d);
-      A(edge, 'stroke-width', r2(widths[0] * 0.3));
-      // the lit ridge runs a little left of the axis (light from the upper left)
-      const rp = ax.pts.slice(0, -1).concat([cap]).map((p, i) => {
-        const nn = nrm[Math.min(i, nrm.length - 1)];
-        const w = widths[Math.min(i, widths.length - 1)];
-        return [p[0] - nn[0] * w * 0.14, p[1] - nn[1] * w * 0.14];
-      });
-      A(ridge, 'points', ptsStr(rp));
-      A(ridge, 'stroke-width', r2(widths[0] * 0.3));
-      if (pside) {
-        // palm side of the thumb: a lighter strip along its inner (left) edge
-        const sidePts = ring.slice(0, Math.ceil(ring.length / 2) - 2);
-        A(pside, 'd', splinePathD(sidePts.concat(ax.pts.slice(0, -1).reverse()), false) + 'Z');
-      }
-      if (tipShade) {
-        const a = ax.angs[ax.angs.length - 1];
-        A(tipShade, 'cx', r2(cap[0] + lastD[0] * rT * 0.55));
-        A(tipShade, 'cy', r2(cap[1] + lastD[1] * rT * 0.55));
-        A(tipShade, 'rx', r2(rT * 1.1));
-        A(tipShade, 'ry', r2(rT * 0.6));
-        A(tipShade, 'transform', `rotate(${r2(a)} ${r2(cap[0] + lastD[0] * rT * 0.55)} ${r2(cap[1] + lastD[1] * rT * 0.55)})`);
-        A(tipHi, 'cx', r2(cap[0] - lastD[0] * rT * 0.35 - lastD[1] * rT * 0.2));
-        A(tipHi, 'cy', r2(cap[1] - lastD[1] * rT * 0.35 + lastD[0] * rT * 0.2));
-        A(tipHi, 'rx', r2(rT * 0.45));
-        A(tipHi, 'ry', r2(rT * 0.3));
-      }
-      // knuckle creases: short bowed lines across the back of the finger at the joint
+      // one short, slightly bowed line per joint (a curled finger: on its rounded end, the bent middle joint)
       creases.forEach((c) => {
         const i = c.seg;
         const last = i >= ax.pts.length - 1;
-        const p = last ? cap : ax.pts[i]; // a curled finger: the crease sits on its rounded end (the bent middle joint)
+        const p = last ? cap : ax.pts[i];
         const a = i === 0 ? ax.angs[0] : last ? ax.angs[ax.angs.length - 1] : (ax.angs[i - 1] + ax.angs[i]) / 2;
-        const w = widths[Math.min(i, widths.length - 1)];
-        if (!c.built) {
-          c.built = true;
-          const lines = [];
-          const mid = Math.floor(c.cnt / 2);
-          for (let k = 0; k < c.cnt; k++) {
-            const off = (k - (c.cnt - 1) / 2) * 3.4;
-            const half = w * (k === mid ? 0.24 : 0.17);
-            lines.push(`<path d="M${r2(-half)} ${r2(off)} Q0 ${r2(off + 2.2)} ${r2(half)} ${r2(off)}" stroke-width="${k === mid ? 1.1 : 0.9}" opacity="${k === mid ? 0.7 : 0.45}"/>`);
-          }
-          // the joint itself: a faint lit bump just above the creases
-          c.g.innerHTML = lines.join('') + `<ellipse cx="0" cy="${r2(-3)}" rx="${r2(w * 0.26)}" ry="5" fill="#fff" stroke="none" opacity="0.14"/>`;
-        }
-        A(c.g, 'transform', `translate(${r2(p[0])} ${r2(p[1])}) rotate(${r2(a)})`);
+        const half = widths[Math.min(i, widths.length - 1)] * 0.2;
+        A(c.el, 'd', `M${r2(-half)} 0 Q0 2.5 ${r2(half)} 0`);
+        A(c.el, 'transform', `translate(${r2(p[0])} ${r2(p[1])}) rotate(${r2(a)})`);
       });
       if (nail) {
         const a = ax.angs[ax.angs.length - 1];
         const segL = Math.hypot(ax.pts[ax.pts.length - 1][0] - ax.pts[ax.pts.length - 2][0], ax.pts[ax.pts.length - 1][1] - ax.pts[ax.pts.length - 2][1]);
-        const nw = widths[widths.length - 2] * (o.nailW || 0.6);
-        const top = -rT * 0.62;
-        const len = Math.max(10, segL * 0.52);
-        const sx = (o.nailSide || 0) * nw * 0.22;
+        const nw = widths[widths.length - 2] * (o.nailW || 0.56);
+        const top = -rT * 0.6;
+        const bot = top + Math.max(10, segL * 0.5);
+        const sx = (o.nailSide || 0) * nw * 0.2;
         const x0 = sx - nw / 2;
         const x1 = sx + nw / 2;
-        const bot = top + len;
-        A(nail.g, 'transform', `translate(${r2(cap[0])} ${r2(cap[1])}) rotate(${r2(a)})`);
-        A(nail.fold, 'd', `M${r2(x0 - 2)} ${r2(bot + 1)} C${r2(x0 - 2)} ${r2(top + nw * 0.3)} ${r2(sx - nw * 0.3)} ${r2(top - 2.2)} ${r2(sx)} ${r2(top - 2.2)} C${r2(sx + nw * 0.3)} ${r2(top - 2.2)} ${r2(x1 + 2)} ${r2(top + nw * 0.3)} ${r2(x1 + 2)} ${r2(bot + 1)} Z`);
-        A(nail.plate, 'd', `M${r2(x0)} ${r2(bot - 2)} C${r2(x0)} ${r2(top + nw * 0.36)} ${r2(sx - nw * 0.32)} ${r2(top)} ${r2(sx)} ${r2(top)} C${r2(sx + nw * 0.32)} ${r2(top)} ${r2(x1)} ${r2(top + nw * 0.36)} ${r2(x1)} ${r2(bot - 2)} Q${r2(sx)} ${r2(bot + 3)} ${r2(x0)} ${r2(bot - 2)} Z`);
-        A(nail.edge, 'd', `M${r2(x0 + nw * 0.12)} ${r2(top + nw * 0.2)} Q${r2(sx)} ${r2(top - 0.5)} ${r2(x1 - nw * 0.12)} ${r2(top + nw * 0.2)}`);
-        A(nail.cut, 'd', `M${r2(x0 + 1)} ${r2(bot - 2.2)} Q${r2(sx)} ${r2(bot + 2.3)} ${r2(x1 - 1)} ${r2(bot - 2.2)}`);
-        A(nail.hi, 'cx', r2(sx - nw * 0.17));
-        A(nail.hi, 'cy', r2(top + len * 0.42));
-        A(nail.hi, 'rx', r2(nw * 0.09));
-        A(nail.hi, 'ry', r2(len * 0.24));
+        A(nail, 'd', `M${r2(x0)} ${r2(bot)} V${r2(top + nw * 0.45)} A${r2(nw / 2)} ${r2(nw / 2)} 0 0 1 ${r2(x1)} ${r2(top + nw * 0.45)} V${r2(bot)} Q${r2(sx)} ${r2(bot + 3)} ${r2(x0)} ${r2(bot)} Z`);
+        A(nail, 'transform', `translate(${r2(cap[0])} ${r2(cap[1])}) rotate(${r2(a)})`);
       }
       return { cap, rT };
     },
   };
 }
 
-/** Shared <defs> of one hand: blurs, union outline, nail gradient, drop shadow, sleeve and cuff gradients. */
+/** Shared <defs> of one hand: the union outline and a soft drop shadow. */
 function handDefs(svg) {
   const defs = sv('defs', {}, svg);
   const k = HANDN;
   defs.innerHTML = `
-    <filter id="hb1_${k}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1"/></filter>
-    <filter id="hb2_${k}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2"/></filter>
-    <filter id="hb3_${k}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3.2"/></filter>
-    <filter id="hb4_${k}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4.5"/></filter>
-    <filter id="hb8_${k}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="9"/></filter>
-    <filter id="hol_${k}" x="-20%" y="-20%" width="140%" height="140%"><feMorphology in="SourceAlpha" operator="dilate" radius="1.1" result="d"/><feFlood flood-color="${SKIN.outline}" flood-opacity="0.8"/><feComposite in2="d" operator="in" result="o"/><feMerge><feMergeNode in="o"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-    <filter id="hsh_${k}" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="16" dy="26" stdDeviation="14" flood-color="#000" flood-opacity="0.36"/></filter>
-    <linearGradient id="ng_${k}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f8e0d3"/><stop offset="0.55" stop-color="${SKIN.nail}"/><stop offset="1" stop-color="#e4b19c"/></linearGradient>
-    <linearGradient id="sl_${k}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1c3048"/><stop offset="0.45" stop-color="${SKIN.sleeveHi}"/><stop offset="1" stop-color="#1a2c43"/></linearGradient>
-    <linearGradient id="cf_${k}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5a7ca3"/><stop offset="0.35" stop-color="${SKIN.cuff}"/><stop offset="1" stop-color="#22394f"/></linearGradient>`;
+    <filter id="hol_${k}" x="-20%" y="-20%" width="140%" height="140%"><feMorphology in="SourceAlpha" operator="dilate" radius="1.6" result="d"/><feFlood flood-color="${SKIN.outline}"/><feComposite in2="d" operator="in" result="o"/><feMerge><feMergeNode in="o"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="hsh_${k}" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="10" dy="16" stdDeviation="10" flood-color="#000" flood-opacity="0.22"/></filter>`;
   return defs;
 }
 
-/**
- * Back of the hand (dorsal), drawn over the roots of the fingers. Flat skin fill (so it meets the fingers without a seam) with
- * soft clipped shading: a sheen on the upper left, shade on the little-finger side and toward the wrist, lit knuckles with
- * shallow valleys between them, and faint extensor tendons fanning from the wrist to the knuckles. No stroke of its own:
- * the skin group's union outline draws its silhouette.
- */
-function mkPalm(parent, defs, pts, knuckles) {
-  const id = `pc${HANDN}_${_limbId++}`;
-  const d = splinePathD(pts, true);
-  const cp = sv('clipPath', { id }, defs);
-  sv('path', { d }, cp);
-  const g = sv('g', {}, parent);
-  sv('path', { d, fill: SKIN.base }, g);
-  const inner = sv('g', { 'clip-path': `url(#${id})` }, g);
-  const blur = (n) => `url(#hb${n}_${HANDN})`;
-  sv('ellipse', { cx: -20, cy: -112, rx: 52, ry: 64, fill: SKIN.light, opacity: 0.45, filter: blur(8) }, inner);
-  sv('ellipse', { cx: 84, cy: -92, rx: 26, ry: 112, fill: SKIN.deep, opacity: 0.32, filter: blur(8) }, inner);
-  sv('ellipse', { cx: -86, cy: -70, rx: 16, ry: 60, fill: SKIN.shade, opacity: 0.4, filter: blur(8) }, inner);
-  knuckles.forEach((k, i) => {
-    // tendon: from near the middle of the wrist to the knuckle, a faint lit ridge
-    sv('path', { d: `M${r2(k[0] * 0.28)} -18 Q${r2(k[0] * 0.62)} ${r2(k[1] * 0.5)} ${r2(k[0])} ${r2(k[1] + 22)}`, fill: 'none', stroke: SKIN.light, 'stroke-width': 5, opacity: 0.2, 'stroke-linecap': 'round', filter: blur(3) }, inner);
-    sv('ellipse', { cx: k[0] - 2, cy: k[1] + 9, rx: 12, ry: 8, fill: '#fff', opacity: 0.2 - i * 0.03, filter: blur(3) }, inner);
-    if (i < knuckles.length - 1) {
-      const m = [(k[0] + knuckles[i + 1][0]) / 2, (k[1] + knuckles[i + 1][1]) / 2];
-      sv('path', { d: `M${r2(m[0])} ${r2(m[1] + 6)} l${r2(m[0] * -0.05)} 26`, stroke: SKIN.shade, 'stroke-width': 8, opacity: 0.2, 'stroke-linecap': 'round', filter: blur(3) }, inner);
-    }
-  });
-  sv('path', { d: 'M-34 -118 C-22 -90 -12 -62 -16 -30', fill: 'none', stroke: 'rgba(96,112,160,0.12)', 'stroke-width': 4, 'stroke-linecap': 'round', filter: blur(2) }, inner);
-  return g;
+/** Back of the hand: one flat shape over the roots of the fingers (the skin group's union outline draws its edge). */
+function mkPalm(parent, defs, pts) {
+  return sv('path', { d: splinePathD(pts, true), fill: SKIN.base }, parent);
 }
 
 /** Wrist skin (inside the skin group, so the outline wraps it with the hand). */
 function mkWrist(parent) {
-  const g = sv('g', {}, parent);
-  sv('path', { d: 'M-54 -20 C-56 14 -57 40 -58 72 L60 72 C59 40 58 14 56 -20 Z', fill: SKIN.base }, g);
-  sv('path', { d: 'M-54 -20 C-56 14 -57 40 -58 72 L-34 72 C-38 40 -40 14 -38 -20 Z', fill: SKIN.shade, opacity: 0.35, filter: `url(#hb4_${HANDN})` }, g);
-  return g;
+  return sv('path', { d: 'M-54 -20 C-56 14 -57 40 -58 72 L56 72 C59 40 58 14 56 -20 Z', fill: SKIN.base }, parent);
 }
 
-/** Slim cuff and sleeve, drawn over the bottom of the wrist. */
+/** Flat cuff and sleeve, drawn over the bottom of the wrist. */
 function mkSleeve(parent) {
   const g = sv('g', {}, parent);
-  sv('path', { d: 'M-64 62 C-68 120 -74 200 -80 320 L86 320 C80 200 74 120 70 62 Z', fill: `url(#sl_${HANDN})` }, g);
-  sv('path', { d: 'M-40 120 C-30 160 -34 230 -46 300 M30 110 C40 170 36 240 26 310', fill: 'none', stroke: 'rgba(0,0,0,0.25)', 'stroke-width': 3, 'stroke-linecap': 'round' }, g);
-  sv('path', { d: 'M-64 50 Q-2 58 1 58 Q4 58 66 50 L68 76 Q2 84 -66 76 Z', fill: 'rgba(0,0,0,0.25)', filter: `url(#hb2_${HANDN})` }, g); // the cuff's shadow on the wrist
-  sv('path', { d: 'M-62 46 Q2 38 64 46 L66 74 Q2 66 -64 74 Z', fill: `url(#cf_${HANDN})`, stroke: '#1b2c41', 'stroke-width': 1 }, g);
-  sv('path', { d: 'M-60 53 Q2 45 64 53', fill: 'none', stroke: 'rgba(255,255,255,0.28)', 'stroke-width': 1, 'stroke-dasharray': '3 3' }, g);
-  sv('circle', { cx: 46, cy: 60, r: 3.2, fill: '#dfe7f1', stroke: '#6e86a3', 'stroke-width': 0.8 }, g);
+  sv('path', { d: 'M-64 62 C-68 120 -74 200 -80 320 L86 320 C80 200 74 120 70 62 Z', fill: SKIN.sleeve }, g);
+  sv('path', { d: 'M-62 46 Q2 38 64 46 L66 74 Q2 66 -64 74 Z', fill: SKIN.cuff }, g);
   return g;
 }
 
@@ -4180,10 +4059,7 @@ function mkTwoFingerHand(host) {
   const ma = limbAxis([-13, -166], 1, [84, 53, 39], [-1, -1]);
   const ti = index.pose(ia, [35, 32, 29, 26]);
   const tm = middle.pose(ma, [36, 33, 30, 27]);
-  const knuck = [[-46, -160], [-13, -168], [20, -162], [50, -150]];
-  mkPalm(skin, defs, [[-52, 64], [-53, 20], [-56, -10], [-62, -38], [-76, -70], [-78, -104], [-70, -136], [-58, -164], [-44, -175], [-30, -172], [-14, -182], [2, -176], [20, -178], [36, -168], [50, -166], [64, -152], [72, -124], [72, -84], [64, -36], [56, -10], [55, 20], [54, 64]], knuck);
-  // fold of skin where the thumb leaves the back of the hand
-  sv('path', { d: 'M-70 -96 Q-62 -104 -55 -100 M-68 -84 Q-62 -90 -56 -87', fill: 'none', stroke: SKIN.crease, 'stroke-width': 1, 'stroke-linecap': 'round', opacity: 0.45 }, skin);
+  mkPalm(skin, defs, [[-52, 64], [-53, 20], [-56, -10], [-62, -38], [-76, -70], [-78, -104], [-70, -136], [-58, -164], [-44, -175], [-30, -172], [-14, -182], [2, -176], [20, -178], [36, -168], [50, -166], [64, -152], [72, -124], [72, -84], [64, -36], [56, -10], [55, 20], [54, 64]]);
   mkSleeve(root);
   // touch points: the finger pads, just behind the rounded tips
   const tips = [ti, tm].map((c) => [c.cap[0], c.cap[1] - 2]);
@@ -4204,10 +4080,8 @@ function mkPinchHand(host) {
   const index = mkLimb(skin, defs, { nail: true, creases: [[1, 3], [2, 2]] });
   // the web of skin between thumb and index and the thumb itself; their roots disappear under the back of the hand
   const web = sv('path', { fill: SKIN.base }, skin);
-  const webShade = sv('path', { fill: 'none', stroke: SKIN.shade, 'stroke-width': 7, opacity: 0.4, 'stroke-linecap': 'round', filter: `url(#hb3_${HANDN})` }, skin);
-  const thumb = mkLimb(skin, defs, { nail: true, nailSide: 0.45, nailW: 0.58, palmSide: true, creases: [[1, 2]] });
-  const knuck = [[-44, -160], [-11, -168], [22, -162], [52, -150]];
-  mkPalm(skin, defs, [[-52, 64], [-53, 20], [-56, -10], [-62, -38], [-76, -70], [-78, -104], [-70, -136], [-56, -164], [-42, -175], [-28, -172], [-11, -182], [5, -176], [22, -178], [38, -168], [52, -166], [66, -152], [72, -124], [72, -84], [64, -36], [56, -10], [55, 20], [54, 64]], knuck);
+  const thumb = mkLimb(skin, defs, { nail: true, nailSide: 0.45, nailW: 0.58, creases: [[1, 2]] });
+  mkPalm(skin, defs, [[-52, 64], [-53, 20], [-56, -10], [-62, -38], [-76, -70], [-78, -104], [-70, -136], [-56, -164], [-42, -175], [-28, -172], [-11, -182], [5, -176], [22, -178], [38, -168], [52, -166], [66, -152], [72, -124], [72, -84], [64, -36], [56, -10], [55, 20], [54, 64]]);
   middle.pose(limbAxis([-11, -166], 4, [56], []), [36, 35]);
   ring.pose(limbAxis([22, -160], 9, [52], []), [34, 33]);
   little.pose(limbAxis([52, -148], 15, [42], []), [30, 29]);
@@ -4235,7 +4109,6 @@ function mkPinchHand(host) {
       const pI2 = [pI[0] + dI[1] * 14, pI[1] - dI[0] * 14];
       const ctrl = [(pT2[0] + pI2[0]) / 2 + 10, (pT2[1] + pI2[1]) / 2 + 12];
       A(web, 'd', `M${r2(ta.pts[0][0] + 10)} ${r2(ta.pts[0][1] + 6)} L${r2(pT2[0])} ${r2(pT2[1])} Q${r2(ctrl[0])} ${r2(ctrl[1])} ${r2(pI2[0])} ${r2(pI2[1])} L${r2(ia.pts[0][0] + 6)} ${r2(ia.pts[0][1] + 8)} Z`);
-      A(webShade, 'd', `M${r2(pT2[0])} ${r2(pT2[1])} Q${r2(ctrl[0])} ${r2(ctrl[1])} ${r2(pI2[0])} ${r2(pI2[1])}`);
       api.tips = [[ti.cap[0], ti.cap[1] - 2], [tt.cap[0], tt.cap[1] - 2]];
       return api.tips;
     },
